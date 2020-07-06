@@ -11,41 +11,32 @@ in VertexData {
 
 out vec4 fragColor;
 
-float getSumOfSurroundingDepthValues(sampler2D tex, vec2 texcoord) {
-    float surroundingDepthValues;
-    float stepSize = 0.005;
-
-    for (int i=0; i<9; i++) {
-        int rowN = i/3;
-        int colN = int(mod(i, 3));
-
-        float modY = 1 - rowN;
-        float modX = colN - 1;
-
-        vec2 modifier = vec2(modX, modY);
-
-        // Don't normalzie the zero vector
-        if (length(modifier) != 0) {
-          modifier = normalize(modifier);
-        }
-        modifier *= stepSize;
-        
-        vec4 depthVal = texture(tex, texcoord + modifier);
-        surroundingDepthValues += floor(depthVal.r);
-    }
-
-    return surroundingDepthValues;
+vec4 getSurroundingTexels(sampler2D tex, vec2 texcoord, float sSize) {
+    vec4 val;
+    val += floor(texture(tex, texcoord +           vec2( 0, 1) *sSize));
+    val += floor(texture(tex, texcoord +           vec2( 0,-1) *sSize));
+    val += floor(texture(tex, texcoord +           vec2( 1, 0) *sSize));
+    val += floor(texture(tex, texcoord +           vec2(-1, 0) *sSize));
+    val += floor(texture(tex, texcoord + normalize(vec2( 1, 1))*sSize));
+    val += floor(texture(tex, texcoord + normalize(vec2( 1,-1))*sSize));
+    val += floor(texture(tex, texcoord + normalize(vec2(-1, 1))*sSize));
+    val += floor(texture(tex, texcoord + normalize(vec2(-1,-1))*sSize));
+    
+    return val;
 }
 
 void main(void) {
-    vec3 depthVal = vec3(texture(prevDepthPass, inData.v_texcoord));
-    float sumDepthVals = getSumOfSurroundingDepthValues(prevDepthPass, inData.v_texcoord);
+    float outlineSize = 0.005;
     
-    bool isEdge = bool(depthVal.x == 1 && sumDepthVals < 9);
+    vec3 depthVal              = vec3(texture(prevDepthPass, inData.v_texcoord));
+    float neighborDepthValsSum = getSurroundingTexels(prevDepthPass, inData.v_texcoord, outlineSize).r;
+    
+    bool isEdge = bool(depthVal.x == 1 && neighborDepthValsSum < 8);
     
     if (isEdge) {
         fragColor = vec4(1);
-    } else {
-        fragColor = texture(prevPass, inData.v_texcoord);
+        return;
     }
+ 
+    fragColor = texture(prevPass, inData.v_texcoord);
 }
