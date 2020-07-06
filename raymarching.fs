@@ -22,19 +22,38 @@ struct Light {
     vec3 intensity;
 };
 
+// SDF for a cube centered at the origin with width = height = length = 2.0
+float cubeSDF(vec3 p) {
+    // If d.x < 0, then -1 < p.x < 1, and same logic applies to p.y, p.z
+    // So if all components of d are negative, then p is inside the unit cube
+    vec3 d = abs(p) - vec3(1.0, 1.0, 1.0);
+    
+    // Assuming p is inside the cube, how far is it from the surface?
+    // Result will be negative or zero.
+    float insideDistance = min(max(d.x, max(d.y, d.z)), 0.0);
+    
+    // Assuming p is outside the cube, how far is it from the surface?
+    // Result will be positive or zero.
+    float outsideDistance = length(max(d, 0.0));
+    
+    return insideDistance + outsideDistance;
+}
+
 // SDF for a sphere centered at the origin with radius 1
-float sphereSDF(vec3 p) {
-    return length(p) - 1.0;
+float sphereSDF(vec3 p, vec3 center) {
+    return length(p - center) - 1.0;
 }
 
 // Absolute of the return value is distance to surface
 // Sign indicates if point is inside (-) or outside (+) surface
 float sceneSDF(vec3 p) {
-    return sphereSDF(p);
+    return cubeSDF(p);
+    return sphereSDF(p, vec3(0.65, 0, 0));
 }
 
-// Return shortest distance from the eye to the scene surface along marching direction
-float shortestDistanceToSurface(vec3 eye, vec3 marchingDirection, float initialDepth, float maxDepth) {
+// Return shortest distance from the eye to the scene surface along ray 
+float shortestDistanceToSurface(vec3 eye, vec3 marchingDirection,
+                                float initialDepth, float maxDepth) {
     float depth = initialDepth;
     for (int i = 0; i < MAX_MARCHING_STEPS; i++) {
         // dist is distance from surface
@@ -112,12 +131,26 @@ vec3 getLighting(vec3 p, vec3 eye) {
     return lighting;
 }
 
+// center: Center of scene
+mat4 getLookAtMatrix(vec3 eye, vec3 center, vec3 up) {
+    vec3 f = normalize(center - eye);
+    vec3 s = normalize(cross(f, up));
+    vec3 u = cross(s, f);
+
+    return mat4(vec4(s, 0), vec4(u, 0), vec4(-f, 0), vec4(0, 0, 0, 1));
+}
+
 void main() {
     vec2 resolution = u_resolution;
     
-    vec3 eye = vec3(0.0, 0.0, 5.0);
-    vec3 dir = getRayDirection(45.0, resolution, gl_FragCoord.xy);
-    float dist = shortestDistanceToSurface(eye, dir, MIN_DIST, MAX_DIST);
+    vec3 eye = vec3(8.0, 5.0, 7.0)/2;
+    vec3 viewDir = getRayDirection(45.0, resolution, gl_FragCoord.xy);
+
+    // Transform from view to world space
+    mat4 viewToWorld = getLookAtMatrix(eye, vec3(0), vec3(0, 1, 0));
+    vec3 worldDir    = (viewToWorld * vec4(viewDir, 0.0)).xyz;
+
+    float dist = shortestDistanceToSurface(eye, worldDir, MIN_DIST, MAX_DIST);
     
     // Didn't hit anything
     if (dist > MAX_DIST - EPSILON) {
@@ -126,10 +159,10 @@ void main() {
     }
     
     // Point of intersection of view ray with surface
-    vec3 p = eye + dist * dir;
+    vec3 p = eye + dist * worldDir;
 
     vec3 lighting = getLighting(p, eye);
-    vec3 outColor = vec3(1, 0, 0) * lighting;
+    vec3 outColor = vec3(0.8, 0.2, 0.2) * lighting;
 
     fragColor = vec4(outColor, 1);
 }
