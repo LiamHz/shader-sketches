@@ -1,12 +1,23 @@
-# define EDGE_WIDTH 0.15
+# define EDGE_WIDTH 0.125
+# define DISTORTION_DISTANCE 0.01
+
+/* 
+Chromatic Aberration (lines 199-221)
+- Acheived by sending 3 rays into the scene,
+- Each ray's x-direction is shifted by sin(iTime)
+- Each ray is responsible for 1 of the fragment's RGB values
+
+Object Outline (line 90)
+- If a marched ray comes close to a SDF, but never intersects
+  with a surface, that ray has intersected with a surface edge
+*/
+
+#define EPS 0.0001
 
 struct Light {
     vec3 position;
     vec3 intensity;
 };
-
-// Ray marching parameters
-const float EPS = 0.0001;
 
 // CSG operations
 float opI(float d1, float d2) {
@@ -78,19 +89,6 @@ vec3 raymarch(vec3 viewPos, vec3 ray) {
     return vec3(depth, material, isEdge);
 }
 
-// Return normalized direction to march in from the eye point for a single pixel
-vec3 getRayDirection(float fov, vec2 resolution, vec2 fragCoord) {
-    // Move origin from bottom left to center of screen
-    vec2 xy = fragCoord - resolution / 2.0;
-    
-    // Get the z-distance from pixel given resolution and vertical FoV
-    // Diagram shows that: tan(radians(fov)/2) == (resolution.y * 0.5) / z
-    // Diagram: https://stackoverflow.com/a/10018680
-    // Isolating for z gives
-    float z = (resolution.y * 0.5) / tan(radians(fov) / 2.0);
-    return normalize(vec3(xy, -z));
-}
-
 // Estimate normal of surface at point p by sampling nearby points
 vec3 estimateNormal(vec3 p) {
     return normalize(vec3(
@@ -98,15 +96,6 @@ vec3 estimateNormal(vec3 p) {
         map(vec3(p.x, p.y + EPS, p.z)).x - map(vec3(p.x, p.y - EPS, p.z)).x,
         map(vec3(p.x, p.y, p.z + EPS)).x - map(vec3(p.x, p.y, p.z - EPS)).x
     ));
-}
-
-
-float applyCelShading(float x) {
-    // Quantize light value into one of N buckets
-    float x1 = smoothstep(0.000, 0.001, x) * 0.20;
-    float x2 = smoothstep(0.256, 0.257, x) * 0.78;
-    float x3 = smoothstep(0.780, 0.781, x) * 1.00;
-    return max(x1, max(x2, x3));
 }
 
 vec3 getLightContrib(vec3 p, vec3 eye, vec3 k_d, vec3 k_s, 
@@ -139,16 +128,13 @@ vec3 getLighting(vec3 p, vec3 viewPos) {
     light1.position  = vec3(20.0, 3.0, 5.0);
 
     lighting += getLightContrib(p, viewPos, k_d, k_s, shininess, light1);
-    
-    float celLight = applyCelShading(lighting.x);
-    lighting *= celLight;
-    
     lighting += k_a * ambientLightIntensity;
 
     return lighting;
 }
 
-mat4 getLookAtMatrix(vec3 eye, vec3 center, vec3 up) {
+// Create look at matrix
+mat4 setCamera(vec3 eye, vec3 center, vec3 up) {
     vec3 f = normalize(center - eye);
     vec3 s = normalize(cross(f, up));
     vec3 u = cross(s, f);
@@ -187,14 +173,38 @@ vec3 getPixel(vec3 viewPos, vec3 worldRay) {
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec3 viewPos = vec3(6.0);
-    vec3 viewRay = getRayDirection(45.0, iResolution.xy, fragCoord.xy);
+    // Normalize screen coordinates
+    vec2 p = (-iResolution.xy + 2.0*fragCoord)/iResolution.y;
 
-    // Transform from view to world space
-    mat4 viewToWorld = getLookAtMatrix(viewPos, vec3(0.0), vec3(0.0, 1.0, 0.0));
-    vec3 worldRay    = (viewToWorld * vec4(viewRay, 0.0)).xyz;
+    // Camera
+    vec3 pos    = vec3(5.0, 6.0, 5.0);
+    vec3 center = vec3(0.0);
+    vec3 up     = vec3(0.0, 1.0, 0.0);
+    mat4 camera = setCamera(pos, center, up);
 
-    vec3 col = getPixel(viewPos, worldRay);
+    // Chromatic aberration
+    // dx is distance to distort by
+    float dx = 0.0;
+    dx = (1.0 + sin(iTime*6.0)) * 0.5;
+    dx *= 1.0 + sin(iTime*16.0) * 0.5;
+    dx *= 1.0 + sin(iTime*19.0) * 0.5;
+    dx *= 1.0 + sin(iTime*27.0) * 0.5;
+    dx = pow(dx, 3.0);
+
+    dx *= DISTORTION_DISTANCE;
+    
+    // Transform rays by distortion amount (dx),
+    // and convert them from view to world space 
+    vec3 ray1 = (camera * normalize(vec4(p.x     , p.y, -2.0, 0.0))).xyz;
+    vec3 ray2 = (camera * normalize(vec4(p.x - dx, p.y, -2.0, 0.0))).xyz;
+    vec3 ray3 = (camera * normalize(vec4(p.x + dx, p.y, -2.0, 0.0))).xyz;
+    
+    vec3 col;
+    col.r = getPixel(pos, ray2).r;
+    col.g = getPixel(pos, ray1).g;
+    col.b = getPixel(pos, ray3).b;
+
+    col *= (1.0 - dx * 0.5);
     
     fragColor = vec4(col, 1.0);
 }
