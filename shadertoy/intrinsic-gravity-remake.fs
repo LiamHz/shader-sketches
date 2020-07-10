@@ -7,10 +7,6 @@
 #define beat (60.0/BPM)
 #define halfbeat (60.0/BPM/2.0)
 
-// The delay between Soundcloud audio 
-// and YouTube audio of Infinite Gravity
-#define AUDIO_DELAY -0.5
-
 vec3 hsv2rgb(vec3 c) {
     vec3 rgb = clamp(abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0, 0.0, 1.0);
     return c.z * mix( vec3(1.0), rgb, c.y);
@@ -57,11 +53,12 @@ ti2: Start of wipe to black
 ti3: Start of half wipe
 */
 
-#define SCENE_INTRO_START AUDIO_DELAY
+#define SCENE_INTRO_START 0.0
 #define ti1 (SCENE_INTRO_START + beat)
 #define ti2 (ti1 + 4.0*beat)
 #define ti3 (ti2 + 4.0*beat)
-#define SCENE_INTRO_END (ti3 + 4.0*beat)
+#define SCENE_INTRO_END (ti3 + 3.0*beat)
+// 12 beats total
 
 // step(pos.y + 0.5, time) wipes screen from bottom to top edge
 // -pos.y flips the edge / wipe direction
@@ -76,9 +73,10 @@ vec3 sceneIntro(vec2 pos, float time) {
 }
 
 /*
+tq1: Length of initial stillness
 tq2: Length of horizontal slide
 tq3: Start of zoom out
-tq4: Start of rotation
+tq4: Start of global rotation 1
 tq5: Start of sub squares growing
 tq6: Start of flattening to stripes
 tq7: Start of stripes sliding
@@ -86,10 +84,15 @@ tq8: Start of grid reformation stage 1
 tq9: Start of grid reformation stage 2
 tq10: Start of screen flash + grid shift + tile spin
 tq11: Start of wipe from outside in
+tq12: Start of global rotation 2
+tq13: Start of global rotation 3
+tq14: Start of tiles shrinking to nothing
 */
 
+
 #define SCENE_QUADS_START SCENE_INTRO_END
-#define tq2 (SCENE_QUADS_START + halfbeat)
+#define tq1 (SCENE_QUADS_START + beat)
+#define tq2 (tq1 + halfbeat)
 #define tq3 (tq2 + 1.5*beat)
 #define tq4 (tq3 + 1.5*beat)
 #define tq5 (tq4 + 4.0*beat)
@@ -99,14 +102,18 @@ tq11: Start of wipe from outside in
 #define tq9 (tq8 + halfbeat)
 #define tq10 (tq9 + 2.0*beat)
 #define tq11 (tq10 + beat)
-#define SCENE_QUADS_END (tq11 + 4.0*beat)
+#define tq12 (tq11 + halfbeat)
+#define tq13 (tq12 + halfbeat)
+#define tq14 (tq13 + halfbeat)
+#define SCENE_QUADS_END (tq14 + 2.0*beat)
+// 24 beats total
 
 vec3 sceneQuads(vec2 pos, float time) {
     vec3 color;
     float bColor;
     
     if (time < tq2) {
-        float shift = smoothstep(SCENE_QUADS_START, tq2, time);
+        float shift = smoothstep(tq1, tq2, time);
         bColor = pos.y > 0.0 ?     step(-pos.x+0.5, 0.5*shift) : 
                  pos.y < 0.0 ? 1.0-step(-pos.x+0.5, 0.5*shift) : 0.0;
     
@@ -118,8 +125,9 @@ vec3 sceneQuads(vec2 pos, float time) {
                    + z*0.25*smoothstep(tq5+halfbeat, tq6, time);
 
     // Global rotation
-    float rot = smoothstep(tq4, tq4+halfbeat, time)*PI/4.0;
-    rot -= PI/4.0;
+    float rot = -PI/4.0 + PI/4.0*smoothstep(tq4,  tq4 +    halfbeat, time)
+        			          + PI/4.0*smoothstep(tq12, tq12+0.5*halfbeat, time)
+        			          + PI/4.0*smoothstep(tq13, tq13+0.5*halfbeat, time);
     pos *= mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
 
     // s > 1.0 will make grid 2 and 3 visible
@@ -141,6 +149,8 @@ vec3 sceneQuads(vec2 pos, float time) {
 
     vec2 mainGridSize = vec2( reskew, skew)-unskew  +vec2(z)/s;
     vec2 subGridSize  = vec2(-reskew, subSkew)    +z-vec2(z)/s;
+
+    mainGridSize += z*smoothstep(tq14, tq14+0.5*halfbeat, time);
 
     // Wipe transition
     float wipeSize = (z+0.5)*(1.0 - smoothstep(tq11, tq11+halfbeat, time));
@@ -192,7 +202,8 @@ vec3 sceneQuads(vec2 pos, float time) {
 }
 
 /*
-tc1: circles start rotating / stop moving out
+tc0: Circles start moving out
+tc1: Circles start rotating
 tc2: Radius increase 1
 tc3: Radius increase 2
 tc4: Radius increase 3
@@ -200,12 +211,14 @@ tc5: Radius increase 4
 */
 
 #define SCENE_CIRCLES_START SCENE_QUADS_END
-#define tc1 (SCENE_CIRCLES_START + 2.0*beat)
+#define tc0 (SCENE_CIRCLES_START + 3.0*beat)
+#define tc1 (tc0 + 3.0*beat)
 #define tc2 (tc1 + beat)
 #define tc3 (tc2 + beat)
 #define tc4 (tc3 + beat)
 #define tc5 (tc4 + halfbeat)
-#define SCENE_CIRCLES_END (tc5)
+#define SCENE_CIRCLES_END (tc5 + 2.5*beat)
+// 12 beats total
 
 // I used digital's shader as a starter for this scene
 // https://www.shadertoy.com/view/XtcBzr
@@ -219,13 +232,14 @@ vec3 sceneCircles(vec2 uv, float time) {
     float rot = time > tc1 ? (time - tc1)*rotS : 0.0;
     uv *= mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
 
-    float dist = smoothstep(SCENE_CIRCLES_START, tc1, time) * 2.97;
+    float dist = smoothstep(tc0, tc1, time) * 2.97;
     
     // Change circle radius at specific times
-    float radius = 0.5 + smoothstep(tc2, tc2+0.2, time)*0.61
-                       + smoothstep(tc3, tc3+0.2, time)*0.48
-                       + smoothstep(tc4, tc4+0.2, time)*0.5
-                       + smoothstep(tc5, tc5+1.6, time)*16.0;
+    float radius = -1.0 +  1.5*smoothstep(SCENE_CIRCLES_START, tc0, time)
+                        + 0.61*smoothstep(tc2, tc2+halfbeat, time)
+                        + 0.48*smoothstep(tc3, tc3+halfbeat, time)
+                        +  0.5*smoothstep(tc4, tc4+halfbeat, time)
+                        + 16.0*smoothstep(tc5, tc5+beat, time);
     
     // Color intensity / transparency
     float alpha = 0.20;
@@ -252,9 +266,11 @@ vec3 sceneCircles(vec2 uv, float time) {
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    float time = iTime;
-    float end = SCENE_CIRCLES_END; // End of last scene
+    // Correct for the delay between Soundcloud 
+    // and YouTube audio of Infinite Gravity
+    float time = iTime + 0.4;
     
+    float end = SCENE_CIRCLES_END; // End of last scene
     time += 0.0;                   // Start at specified scene
     time = mod(time, end);         // Loop at end of last scene
     
@@ -267,11 +283,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     } else if (time < SCENE_QUADS_END) {
         scene = sceneQuads(uv, time);
     } else if (time < SCENE_CIRCLES_END) {
-        // Fade to black at end of scene
-        scene = mix(sceneCircles(uv, time), vec3(0), 
+        scene = mix(1.0-sceneCircles(uv, time), vec3(0), 
                     smoothstep(end-halfbeat, end, time));
     } else {
-        scene = vec3(0.8, 0.2, 0.2);   
+        scene = vec3(1.0);   
     }
 
     fragColor = vec4(scene, 1.0);
