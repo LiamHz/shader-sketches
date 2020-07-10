@@ -49,6 +49,7 @@ tq3: Start of zoom out
 tq4: Start of rotation
 tq5: Start of sub squares growing
 tq6: Start of flattening to stripes
+tq7: Start of stripes sliding
 */
 
 #define SCENE_QUADS_START SCENE_INTRO_END
@@ -58,7 +59,9 @@ tq6: Start of flattening to stripes
 #define tq4 (tq3 + beat)
 #define tq5 (tq4 + 2.0*beat)
 #define tq6 (tq5 + 2.0*beat)
-#define SCENE_QUADS_END (tq6 + 2.0*beat)
+#define tq7 (tq6 + 0.5*halfbeat)
+#define tq8 (tq7 + 0.5*halfbeat+3.5*beat)
+#define SCENE_QUADS_END (tq8 + 4.0*beat)
 
 float box(vec2 uv, vec2 size) {
     // Increase blur quadratically as size increases
@@ -111,23 +114,32 @@ vec3 sceneQuads(vec2 pos, float time) {
         // s > 1.0 will make grid 2 and 3 visible
         float s = 1.0+0.5*smoothstep(tq5, tq5+halfbeat, time);
         
-        // Create 3 separate grids
+        // Grid skewing
+        float diffSkew   = 0.03;
+        float centerSkew = 0.25;
+        float skew = (centerSkew + diffSkew)
+            		   * smoothstep(tq6, tq7, time);
+        float miniSkew = max(0.0, skew - 0.25);
+        float subSkew = miniSkew-min(skew, centerSkew - diffSkew);
+        
+        // Create 3 separate grids 
         vec2 pos1 = pos;
         pos1 = tile(pos, size);
         pos1 = rotate2D(pos1, PI/4.0);
-        float grid1 = box(pos1, vec2(z)/s);
+        
+        float grid1 = box(pos1, vec2(0.0, skew)+vec2(z)/s);
         
         vec2 pos2 = pos;
         pos2.x -= 0.5/size; // Center square on edges of grid1
         pos2 = tile(pos2, size); 
         pos2 = rotate2D(pos2, PI/4.0);
-        float grid2 = box(pos2, z-vec2(z)/s); 
+        float grid2 = box(pos2, vec2(0.0, subSkew)+z-vec2(z)/s); 
         
         vec2 pos3 = pos;
         pos3.y -= 0.5/size; // Center square on edges of grid1
         pos3 = tile(pos3, size);
         pos3 = rotate2D(pos3, PI/4.0);
-        float grid3 = box(pos3, z-vec2(z)/s); 
+        float grid3 = box(pos3, vec2(0.0, subSkew)+z-vec2(z, z)/s); 
         
         bColor = min(grid1, min(grid2, grid3));
     }
@@ -200,7 +212,7 @@ vec3 sceneCircles(vec2 uv, float time) {
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float time = iTime;
     
-    time += tq5;                         // Start at specified scene
+    time += 0.0;                         // Start at specified scene
     time = mod(time, SCENE_CIRCLES_END); // Loop at end of scene
     
     // NDC from -1/2 to 1/2
