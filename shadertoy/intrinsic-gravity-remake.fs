@@ -36,7 +36,7 @@ vec3 sceneIntro(vec2 pos, float time) {
     if (time < ti2) {
         return vec3(step(-pos.y + 0.5, smoothstep(ti1, ti1+halfbeat, time)));
     } else if (time < ti3) {
-        return vec3(1.0-step(pos.x + 0.5, smoothstep(ti2, ti2+halfbeat, time)));  
+        return vec3(1.0-step(pos.x + 0.5, smoothstep(ti2, ti2+halfbeat, time)));
     } else {
         return vec3(step(pos.y + 0.5, min(smoothstep(ti3, ti3+beat, time), 0.5)));
     }
@@ -47,7 +47,8 @@ tq1: Initial stillness
 tq2: Length of horizontal slide
 tq3: Start of zoom out
 tq4: Start of rotation
-tq5: start of sub squares growing
+tq5: Start of sub squares growing
+tq6: Start of flattening to stripes
 */
 
 #define SCENE_QUADS_START SCENE_INTRO_END
@@ -56,15 +57,18 @@ tq5: start of sub squares growing
 #define tq3 (tq2 + 1.5*beat)
 #define tq4 (tq3 + beat)
 #define tq5 (tq4 + 2.0*beat)
-#define SCENE_QUADS_END (tq5 + 2.0*beat)
+#define tq6 (tq5 + 2.0*beat)
+#define SCENE_QUADS_END (tq6 + 2.0*beat)
 
-float box(vec2 uv, vec2 size, float blur) {
-    size = vec2(0.5)-size*0.5;
-    vec2 pos = smoothstep(size, size+blur,     uv);
-    pos 	*= smoothstep(size, size+blur, 1.0-uv);
+float box(vec2 uv, vec2 size) {
+    // Increase blur quadratically as size increases
+    float blur = 0.00025*size.x*size.x;
+    vec2 edge = vec2(0.5)-size*0.5;
+    vec2 pos = smoothstep(edge, edge+blur,     uv)
+     	       * smoothstep(edge, edge+blur, 1.0-uv);
     
-    // Overlapping white edges produce black
-    return mod(pos.x + pos.y, 2.0);
+    // Apply a NAND on the colors
+    return 1.0 - pos.x * pos.y;
 }
 
 vec2 rotate2D(vec2 pos, float angle){
@@ -75,13 +79,16 @@ vec2 rotate2D(vec2 pos, float angle){
     return pos;
 }
 
-#define z pow(2.0, 0.5)/2.0
+// Side length of grid squares
+// For a square that is rotated 45 degrees, and is contained
+// by the unit square, its side length is sqrt(1/2)
+#define z pow(0.5, 0.5)
 
 vec2 tile(vec2 pos, float zoom){
-    pos.x -= z*z;
-    pos *= zoom;
-    pos.x += z*z;
-    return fract(pos);
+    pos *= zoom;		    // Changes range from [0, 1] to [0, `zoom`]
+    pos.x += 0.5;       // Shift tiling to the right by half a unit
+    
+    return fract(pos);	// Creates `zoom` tilings
 }
 
 vec3 sceneQuads(vec2 pos, float time) {
@@ -101,17 +108,28 @@ vec3 sceneQuads(vec2 pos, float time) {
         rot -= PI/4.0;
         pos *= mat2(cos(rot), -sin(rot), sin(rot), cos(rot));
         
-        // s > 1.0 will create sub squares
+        // s > 1.0 will make grid 2 and 3 visible
         float s = 1.0+0.5*smoothstep(tq5, tq5+halfbeat, time);
         
-        pos.x += z*z;				   	// Center view on grid intersection
-        float blur = 0.00025*size*size; // Increase blur quadratically as size decreases
+        // Create 3 separate grids
+        vec2 pos1 = pos;
+        pos1 = tile(pos, size);
+        pos1 = rotate2D(pos1, PI/4.0);
+        float grid1 = box(pos1, vec2(z)/s);
         
-        // Local tiling and rotations
-        pos = tile(pos, size);
-        pos = rotate2D(pos, PI/4.0);
+        vec2 pos2 = pos;
+        pos2.x -= 0.5/size; // Center square on edges of grid1
+        pos2 = tile(pos2, size); 
+        pos2 = rotate2D(pos2, PI/4.0);
+        float grid2 = box(pos2, z-vec2(z)/s); 
         
-        bColor = box(pos, vec2(z)/s, blur);
+        vec2 pos3 = pos;
+        pos3.y -= 0.5/size; // Center square on edges of grid1
+        pos3 = tile(pos3, size);
+        pos3 = rotate2D(pos3, PI/4.0);
+        float grid3 = box(pos3, z-vec2(z)/s); 
+        
+        bColor = min(grid1, min(grid2, grid3));
     }
     
     color = vec3(bColor);
@@ -133,7 +151,7 @@ tc5: Radius increase 4
 #define tc3 (tc2 + beat)
 #define tc4 (tc3 + beat)
 #define tc5 (tc4 + halfbeat)
-#define SCENE_CIRCLES_END (tc5 + beat)
+#define SCENE_CIRCLES_END (tc5)
 
 // I used digital's shader as a starter for this scene
 // https://www.shadertoy.com/view/XtcBzr
@@ -182,7 +200,7 @@ vec3 sceneCircles(vec2 uv, float time) {
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float time = iTime;
     
-    time += SCENE_INTRO_START;           // Start at specified scene
+    time += tq5;                         // Start at specified scene
     time = mod(time, SCENE_CIRCLES_END); // Loop at end of scene
     
     // NDC from -1/2 to 1/2
